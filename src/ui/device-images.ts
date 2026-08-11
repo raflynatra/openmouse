@@ -32,6 +32,9 @@ const DEVICE_IMAGES: ReadonlyMap<string, string> = new Map([
   ["093a:e020", "/devices/ninjutso-ten.png"],
   ["093a:ea01", "/devices/ninjutso-ten.png"],
   ["093a:eb01", "/devices/ninjutso-ten.png"],
+  // Fantech Helios II XD3 V3: receiver, then cable.
+  ["3554:f535", "/devices/fantech-helios-ii-xd3-v3.png"],
+  ["3554:f536", "/devices/fantech-helios-ii-xd3-v3.png"],
 ]);
 
 function deviceKey(device: HIDDevice): string {

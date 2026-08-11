@@ -12,7 +12,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@openmouse/protocol": "https://github.com/OpenMouse-Project/mouse-protocol.git"
+    "@openmouse/protocol": "https://github.com/raflynatra/mouse-protocol.git#fantech-helios-ii-xd3-v3"
   },
   "devDependencies": {
     "typescript": "^5.8.3",

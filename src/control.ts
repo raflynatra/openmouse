@@ -98,6 +98,7 @@ import { NinjutsoHidClient } from "@openmouse/protocol/drivers/ninjutso/hid";
 import { TeevolutionHidClient } from "@openmouse/protocol/drivers/teevolution/hid";
 import { teevolutionProfileForCid, teevolutionSensorModeUi } from "@openmouse/protocol/teevolution";
 import { VgnF2HidClient } from "@openmouse/protocol/drivers/vgn/hid";
+import { FantechHidClient } from "@openmouse/protocol/drivers/fantech/hid";
 import { KeychronHidClient } from "@openmouse/protocol/drivers/keychron/hid";
 import { SUPPORTED_HID_FILTERS } from "@openmouse/protocol/drivers/vendors";
 import { WLMouseHidClient } from "@openmouse/protocol/drivers/wlmouse/hid";
@@ -131,6 +132,7 @@ let activeOrbitalClient: OrbitalHidClient | null = null;
 let activeRazerClient: RazerHidClient | RazerViperMiniHidClient | RazerViperHidClient | null = null;
 let activeTeevolutionClient: TeevolutionHidClient | null = null;
 let activeVgnClient: VgnF2HidClient | null = null;
+let activeFantechClient: FantechHidClient | null = null;
 let activeViperClient: RazerViperV4ProHidClient | null = null;
 let activeModdoClient: ModdoHidClient | null = null;
 /** Cached onboard profiles; a full read is far too slow for the refresh loop. */
@@ -192,7 +194,7 @@ async function statusAfterWrite(client: SupportedClient): Promise<MouseStatus> {
 }
 
 function activeSettingsClient(): SupportedClient | null {
-  return activeClient ?? activePulsarClient ?? activeEggClient ?? activeEggWeClient ?? activeFinalmouseClient ?? activeDmClient ?? activeOrbitalClient ?? activeRazerClient ?? activeViperClient ?? activeTeevolutionClient ?? activeVgnClient ?? activeKeychronClient ?? activeModdoClient;
+  return activeClient ?? activePulsarClient ?? activeEggClient ?? activeEggWeClient ?? activeFinalmouseClient ?? activeDmClient ?? activeOrbitalClient ?? activeRazerClient ?? activeViperClient ?? activeTeevolutionClient ?? activeVgnClient ?? activeFantechClient ?? activeKeychronClient ?? activeModdoClient;
 }
 
 function hasActiveClient(): boolean {
@@ -1243,6 +1245,10 @@ function showStatus(deviceStatus: MouseStatus): void {
     performanceModeSetting.hidden = hidePerformanceMode;
     performanceModeSetting.style.display = hidePerformanceMode ? "none" : "flex";
   }
+  // Two Compx drivers report a sensor mode, so the row follows the value
+  // rather than the brand.
+  const sensorModeRow = document.querySelector<HTMLElement>("#teevolution-sensor-mode-row");
+  if (sensorModeRow) sensorModeRow.hidden = status.sensorMode == null;
   const processingCard = document.querySelector<HTMLElement>("#processing-settings");
   for (const [selector, hidden] of [
     ["#motion-sync-toggle", ui?.hideMotionSync === true],
@@ -1362,10 +1368,8 @@ function showStatus(deviceStatus: MouseStatus): void {
     const isTeevolution = status.brand === "Teevolution";
     const performanceModeLabel = document.querySelector<HTMLElement>("#performance-mode-label");
     if (performanceModeLabel) performanceModeLabel.textContent = isTeevolution ? "Highest performance" : "Performance mode";
-    const teevolutionSensorRow = document.querySelector<HTMLElement>("#teevolution-sensor-mode-row");
     const teevolutionDurationRow = document.querySelector<HTMLElement>("#teevolution-performance-duration-row");
     const teevolutionDpiLighting = document.querySelector<HTMLElement>("#teevolution-dpi-lighting");
-    if (teevolutionSensorRow) teevolutionSensorRow.hidden = !isTeevolution;
     if (teevolutionDurationRow) teevolutionDurationRow.hidden = !isTeevolution;
     if (teevolutionDpiLighting) teevolutionDpiLighting.hidden = !isTeevolution;
     const teevolutionProfile = activeTeevolutionClient?.getModelProfile() ?? teevolutionProfileForCid(14);
@@ -1469,6 +1473,27 @@ function showStatus(deviceStatus: MouseStatus): void {
       setControlValue("#finalmouse-tournament-scroll", status.finalmouseTournamentScrollMode);
       setControlValue("#finalmouse-tournament-timeout", status.finalmouseTournamentScrollTimeoutMs);
     }
+  }
+  if (status.brand === "Fantech") {
+    // Same processing bytes as the Terra Pro, but only the ones with an
+    // established write are filled; debounce and sleep stay hidden.
+    setToggleValue("#motion-sync-toggle", status.motionSync);
+    setToggleValue("#angle-snapping-toggle", status.angleSnapping);
+    setToggleValue("#ripple-control-toggle", status.rippleControl);
+    setToggleValue("#performance-mode-toggle", status.performanceMode);
+    const sensorSelect = document.querySelector<HTMLSelectElement>("#teevolution-sensor-mode");
+    if (sensorSelect && status.sensorMode) {
+      // Ultra is imposed by the link rather than stored, so it only appears
+      // while the mouse is actually in it.
+      for (const option of sensorSelect.options) {
+        option.hidden = option.value === "Ultra" && status.sensorMode !== "Ultra";
+      }
+      sensorSelect.value = status.sensorMode;
+      sensorSelect.disabled = status.sensorModeEditable !== true;
+    }
+    setText("#teevolution-sensor-mode-note", status.sensorModeEditable
+      ? "Fantech's Mode select: Eco is LP, High is HP."
+      : `Locked to corded tracking at ${status.pollingRateHz.toLocaleString()} Hz ${(status.connectionType ?? "Wired").toLowerCase()}.`);
   }
   setText("#device-title", status.name);
   setText("#sidebar-device-title", status.name);
@@ -1893,6 +1918,7 @@ async function activateClient(client: SupportedClient): Promise<void> {
   activeRazerClient = null;
   activeTeevolutionClient = null;
   activeVgnClient = null;
+  activeFantechClient = null;
   activeViperClient = null;
   activeModdoClient = null;
   if (activeDevice !== client.device) onboardProfiles = null;
@@ -1969,6 +1995,14 @@ async function activateClient(client: SupportedClient): Promise<void> {
     dpiOptions = client.getDpiOptions();
     configureDpiControl(status.dpi);
     showStatus(status);
+  } else if (client instanceof FantechHidClient) {
+    activeFantechClient = client;
+    await client.open();
+    const status = await client.readStatus();
+    deviceStatuses.set(client.device, status);
+    dpiOptions = client.getDpiOptions();
+    configureDpiControl(status.dpi);
+    showStatus(status);
   } else if (client instanceof VgnF2HidClient) {
     activeVgnClient = client;
     await client.open();
@@ -2014,6 +2048,7 @@ function showDisconnectedState(): void {
   activeRazerClient = null;
   activeTeevolutionClient = null;
   activeVgnClient = null;
+  activeFantechClient = null;
   activeViperClient = null;
   activeModdoClient = null;
   activeFinalmouseClient = null;
@@ -3672,7 +3707,7 @@ function settingLabel(setting: PulsarToggleSetting): string {
 }
 
 function applyTeevolutionSensorMode(mode: NonNullable<MouseStatus["sensorMode"]>): void {
-  if (!activeTeevolutionClient) return;
+  if (!activeTeevolutionClient && !activeFantechClient) return;
   stageChange({
     key: "teevolution-sensor-mode",
     label: `Sensor mode ${mode}`,
@@ -4018,6 +4053,7 @@ window.addEventListener("beforeunload", (event) => {
   void activeRazerClient?.close();
   void activeTeevolutionClient?.close();
   void activeVgnClient?.close();
+  void activeFantechClient?.close();
   void activeViperClient?.close();
   void activeFinalmouseClient?.close();
   void activeKeychronClient?.close();
